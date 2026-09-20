@@ -1,10 +1,8 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import { Pool } from "pg";
 
-import {
-  buildPostgresUrl,
-  type PostgresConnectionOptions
-} from "./options";
+import type { PostgresConnectionOptions } from "./options";
 
 export type Tenant = {
   id: string;
@@ -52,18 +50,32 @@ function mapTenant(row: Tenant): Tenant {
 
 export class DbService {
   private readonly client: DbClient;
+  private readonly pool: Pool | null;
 
   constructor(options: PostgresConnectionOptions, client?: DbClient) {
     if (client) {
       this.client = client;
+      this.pool = null;
       return;
     }
-    const adapter = new PrismaPg(buildPostgresUrl(options));
+    const pool = new Pool({
+      host: options.host,
+      port: options.port,
+      user: options.user,
+      password: options.password,
+      database: options.database,
+      ssl: options.ssl ? { rejectUnauthorized: true } : undefined
+    });
+    this.pool = pool;
+    const adapter = new PrismaPg(pool);
     this.client = new PrismaClient({ adapter }) as unknown as DbClient;
   }
 
-  connect(): Promise<void> {
-    return this.client.$connect();
+  async connect(): Promise<void> {
+    await this.client.$connect();
+    if (this.pool) {
+      await this.pool.query("SELECT 1");
+    }
   }
 
   disconnect(): Promise<void> {

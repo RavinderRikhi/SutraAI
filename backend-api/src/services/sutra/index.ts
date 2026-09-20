@@ -7,7 +7,15 @@ import {
   type ServerContext,
   type ServerOptions
 } from "../../lib/base-server";
-import { appendOpenAIConfigOptions } from "../../lib/openrouter";
+import type OpenAI from "openai";
+
+import { appendOpenAIConfigOptions, createOpenRouterClient } from "../../lib/openrouter";
+import {
+  buildChatSystemPrompt,
+  createChatCompletion,
+  parseChatModelPayload,
+  parseChatRequestBody
+} from "./chatHandler";
 import {
   appendPostgresOptions,
   DbService,
@@ -15,13 +23,25 @@ import {
   type RawPostgresOptions
 } from "../../lib/postgres-prisma";
 
-export type SutraContext = ServerContext & { db?: DbService };
+export type SutraContext = ServerContext & {
+  db?: DbService;
+  openRouter?: OpenAI;
+};
+
+function argvForCommander(argv: string[]): string[] {
+  const dashDash = argv.indexOf("--");
+  if (dashDash === -1) {
+    return argv;
+  }
+  return ["node", "sutra", ...argv.slice(dashDash + 1)];
+}
 
 export const initializeAppOptions = (
   argv: string[] = process.argv
 ): Record<string, unknown> => {
+  const commanderArgv = argvForCommander(argv);
   return appendPostgresOptions(appendOpenAIConfigOptions(initializeServerOptions()))
-    .parse(argv)
+    .parse(commanderArgv)
     .opts() as Record<string, unknown>;
 };
 
@@ -38,26 +58,63 @@ export const initializeApp = async (
       : []
   };
   const context = initializeServerContext(options);
-  const db = new DbService(
-    resolvePostgresOptions({
-      pgHost: opts.pgHost as string | undefined,
-      pgPort: opts.pgPort as string | number | undefined,
-      pgUser: opts.pgUser as string | undefined,
-      pgPassword: opts.pgPassword as string | undefined,
-      pgDatabase: opts.pgDatabase as string | undefined,
-      pgSsl: opts.pgSsl as boolean | string | undefined
-    } satisfies RawPostgresOptions)
-  );
+  const pgOptions = resolvePostgresOptions({
+    pgConnectionString: opts.pgConnectionString as string | undefined,
+    pgHost: opts.pgHost as string | undefined,
+    pgPort: opts.pgPort as string | number | undefined,
+    pgUser: opts.pgUser as string | undefined,
+    pgPassword: opts.pgPassword as string | undefined,
+    pgDatabase: opts.pgDatabase as string | undefined,
+    pgSsl: opts.pgSsl as boolean | string | undefined
+  } satisfies RawPostgresOptions);
+  const db = new DbService(pgOptions);
   await db.connect();
-  return { ...context, db };
+  context.log.info("postgres_connected", {
+    host: pgOptions.host,
+    port: pgOptions.port,
+    database: pgOptions.database
+  });
+  const openRouter = createOpenRouterClient({
+    apiKey: String(opts.openrouterApiKey ?? ""),
+    baseURL: String(opts.openrouterBaseUrl ?? ""),
+    httpReferer: String(opts.openrouterHttpReferer ?? ""),
+    appTitle: String(opts.openrouterAppTitle ?? "")
+  });
+  context.log.info("openrouter_client_created", {
+    baseURL: openRouter.baseURL
+  });
+  return { ...context, db, openRouter };
 };
+
+function jsonError(
+  res: Response,
+  status: number,
+  message: string,
+  requestId?: string
+): void {
+  res.status(status).json({
+    message,
+    ...(requestId ? { requestId } : {})
+  });
+}
+
+function isPrismaNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: string }).code === "P2025"
+  );
+}
 
 export class SutraServer extends ExpressServer {
   public readonly db?: DbService;
+  public readonly openRouter?: OpenAI;
 
   constructor(context: SutraContext) {
     super(context);
     this.db = context.db;
+    this.openRouter = context.openRouter;
   }
 
   override registerRoutes(): void {
@@ -68,6 +125,95 @@ export class SutraServer extends ExpressServer {
         status: "ok",
         service: this.options.serviceName
       });
+    });
+
+    this.app.post("/api/chat", (req: Request, res: Response, next) => {
+      void this.handleChatPost(req, res).catch(next);
+    });
+  }
+
+  private async handleChatPost(req: Request, res: Response): Promise<void> {
+    const requestId = req.requestId;
+    const parsed = parseChatRequestBody(req.body);
+    if (parsed === null) {
+      jsonError(res, 400, "Invalid chat request", requestId);
+      return;
+    }
+
+    if (this.db === undefined || this.openRouter === undefined) {
+      jsonError(res, 503, "Chat unavailable", requestId);
+      return;
+    }
+
+    const { subdomainSlug, messages, jsonState } = parsed;
+
+    this.log.info("chat_request", {
+      requestId: requestId ?? "unknown",
+      subdomainSlug,
+      messageCount: messages.length
+    });
+
+    const tenant = await this.db.getTenantBySlug(subdomainSlug);
+    if (tenant === null) {
+      this.log.info("chat_error", {
+        requestId: requestId ?? "unknown",
+        subdomainSlug,
+        message: "Tenant not found"
+      });
+      jsonError(res, 404, "Tenant not found", requestId);
+      return;
+    }
+
+    const systemContent = buildChatSystemPrompt(tenant, jsonState);
+
+    let content: string | null | undefined;
+    try {
+      const completion = await createChatCompletion(
+        this.openRouter,
+        systemContent,
+        messages
+      );
+      content = completion.choices[0]?.message?.content;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log.error("chat_error", {
+        requestId: requestId ?? "unknown",
+        subdomainSlug,
+        message
+      });
+      jsonError(res, 502, "Chat model failed", requestId);
+      return;
+    }
+
+    const modelPayload = parseChatModelPayload(content);
+    if (modelPayload === null) {
+      this.log.error("chat_error", {
+        requestId: requestId ?? "unknown",
+        subdomainSlug,
+        message: "Invalid model response"
+      });
+      jsonError(res, 502, "Invalid model response", requestId);
+      return;
+    }
+
+    try {
+      await this.db.updateTenantState(subdomainSlug, modelPayload.jsonState);
+    } catch (error) {
+      if (isPrismaNotFound(error)) {
+        jsonError(res, 404, "Tenant not found", requestId);
+        return;
+      }
+      throw error;
+    }
+
+    this.log.info("chat_ok", {
+      requestId: requestId ?? "unknown",
+      subdomainSlug
+    });
+
+    res.status(200).json({
+      reply: modelPayload.reply,
+      jsonState: modelPayload.jsonState
     });
   }
 }

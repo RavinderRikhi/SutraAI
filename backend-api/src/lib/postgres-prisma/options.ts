@@ -1,5 +1,30 @@
 import { Command } from "commander";
 
+const BASE64_PASSWORD_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
+
+function decodePgPassword(encoded: string): string {
+  const trimmed = encoded.trim();
+  if (!BASE64_PASSWORD_PATTERN.test(trimmed)) {
+    throw new Error("PGPASSWORD must be valid base64");
+  }
+  const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+  const roundTrip = Buffer.from(decoded, "utf8").toString("base64");
+  const normalizedInput = trimmed.replace(/=+$/, "");
+  const normalizedRoundTrip = roundTrip.replace(/=+$/, "");
+  if (normalizedRoundTrip !== normalizedInput) {
+    throw new Error("PGPASSWORD must be valid base64");
+  }
+  return decoded;
+}
+
+function resolvePgPassword(rawPassword?: string): string {
+  const encoded = String(rawPassword ?? "").trim();
+  if (encoded === "") {
+    return "";
+  }
+  return decodePgPassword(encoded);
+}
+
 export type PostgresConnectionOptions = {
   host: string;
   port: number;
@@ -10,6 +35,7 @@ export type PostgresConnectionOptions = {
 };
 
 export type RawPostgresOptions = {
+  pgConnectionString?: string;
   pgHost?: string;
   pgPort?: string | number;
   pgUser?: string;
@@ -53,21 +79,51 @@ function requireNonEmpty(name: string, value: string): string {
   return trimmed;
 }
 
+export function parsePostgresConnectionString(
+  connectionString: string
+): PostgresConnectionOptions {
+  const trimmed = connectionString.trim();
+  if (!trimmed) {
+    throw new Error("Invalid postgres option: pg connection string must be non-empty.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("Invalid postgres connection string URL.");
+  }
+  if (parsed.protocol !== "postgresql:" && parsed.protocol !== "postgres:") {
+    throw new Error("Invalid postgres connection string protocol.");
+  }
+  const database = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  if (!database) {
+    throw new Error("Invalid postgres option: database must be a non-empty string.");
+  }
+  const sslMode = parsed.searchParams.get("sslmode");
+  const ssl = sslMode === "require" || sslMode === "verify-ca" || sslMode === "verify-full";
+
+  return {
+    host: requireNonEmpty("host", parsed.hostname),
+    port: parsed.port ? parsePort(parsed.port) : 5432,
+    user: requireNonEmpty("user", decodeURIComponent(parsed.username)),
+    password: decodeURIComponent(parsed.password),
+    database: requireNonEmpty("database", database),
+    ssl
+  };
+}
+
 export function appendPostgresOptions(program: Command): Command {
   program
-    .option("--pg-host <string>", "PostgreSQL host", process.env.PGHOST ?? "localhost")
-    .option("--pg-port <number>", "PostgreSQL port", process.env.PGPORT ?? "5432")
     .option(
-      "--pg-user <string>",
-      "PostgreSQL user",
-      process.env.PGUSER ?? process.env.USER ?? "postgres"
+      "--pg-connection-string <string>",
+      "PostgreSQL URL (overrides --pg-host, --pg-user, etc.)",
+      ""
     )
-    .option("--pg-password <string>", "PostgreSQL password", process.env.PGPASSWORD ?? "")
-    .option(
-      "--pg-database <string>",
-      "PostgreSQL database",
-      process.env.PGDATABASE ?? "postgres"
-    )
+    .option("--pg-host <string>", "PostgreSQL host", "localhost")
+    .option("--pg-port <number>", "PostgreSQL port", "5432")
+    .option("--pg-user <string>", "PostgreSQL user", "postgres")
+    .option("--pg-password <string>", "PostgreSQL password (base64-encoded)", "")
+    .option("--pg-database <string>", "PostgreSQL database", "postgres")
     .option(
       "--pg-ssl [boolean]",
       "Enable PostgreSQL SSL (true/false)",
@@ -80,20 +136,22 @@ export function appendPostgresOptions(program: Command): Command {
 export function resolvePostgresOptions(
   rawOptions: RawPostgresOptions
 ): PostgresConnectionOptions {
+  const connectionString = rawOptions.pgConnectionString?.trim() ?? "";
+  if (connectionString !== "") {
+    return parsePostgresConnectionString(connectionString);
+  }
+
   const host = requireNonEmpty("host", rawOptions.pgHost ?? "");
   const user = requireNonEmpty("user", rawOptions.pgUser ?? "");
   const database = requireNonEmpty("database", rawOptions.pgDatabase ?? "");
   const explicitCliSsl = parseCliBoolean(rawOptions.pgSsl);
-  const ssl =
-    explicitCliSsl !== undefined
-      ? explicitCliSsl
-      : process.env.PGSSLMODE === "require";
+  const ssl = explicitCliSsl ?? false;
 
   return {
     host,
     port: parsePort(rawOptions.pgPort ?? ""),
     user,
-    password: rawOptions.pgPassword ?? "",
+    password: resolvePgPassword(rawOptions.pgPassword),
     database,
     ssl
   };

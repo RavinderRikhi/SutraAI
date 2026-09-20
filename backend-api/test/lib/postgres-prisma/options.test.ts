@@ -4,6 +4,7 @@ import { Command } from "commander";
 import {
   appendPostgresOptions,
   buildPostgresUrl,
+  parsePostgresConnectionString,
   resolvePostgresOptions
 } from "../../../src/lib/postgres-prisma/options";
 
@@ -34,6 +35,22 @@ describe("buildPostgresUrl", () => {
     expect(url).to.equal(
       "postgresql://u:@db.example:5432/sutra?sslmode=require"
     );
+  });
+});
+
+describe("parsePostgresConnectionString", () => {
+  it("parses user, password, host, port, and database", () => {
+    const opts = parsePostgresConnectionString(
+      "postgresql://postgres:secret%40word@db.internal:5433/sutra"
+    );
+    expect(opts).to.deep.equal({
+      host: "db.internal",
+      port: 5433,
+      user: "postgres",
+      password: "secret@word",
+      database: "sutra",
+      ssl: false
+    });
   });
 });
 
@@ -72,6 +89,33 @@ describe("resolvePostgresOptions", () => {
         pgDatabase: "postgres"
       })
     ).to.throw(/port/);
+  });
+
+  it("prefers pg connection string over discrete flags", () => {
+    const opts = resolvePostgresOptions({
+      pgConnectionString: "postgresql://u:p@host.example:5432/mydb",
+      pgHost: "ignored",
+      pgPort: 1,
+      pgUser: "ignored",
+      pgPassword: "ignored",
+      pgDatabase: "ignored"
+    });
+    expect(opts.user).to.equal("u");
+    expect(opts.password).to.equal("p");
+    expect(opts.host).to.equal("host.example");
+    expect(opts.database).to.equal("mydb");
+  });
+
+  it("decodes base64 pg password from cli options", () => {
+    const encoded = Buffer.from("secret@word", "utf8").toString("base64");
+    const opts = resolvePostgresOptions({
+      pgHost: "localhost",
+      pgPort: 5432,
+      pgUser: "postgres",
+      pgPassword: encoded,
+      pgDatabase: "postgres"
+    });
+    expect(opts.password).to.equal("secret@word");
   });
 });
 

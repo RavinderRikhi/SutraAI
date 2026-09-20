@@ -78,21 +78,16 @@ export interface IServerContext {
 
 export function initializeServerOptions(): Command {
   const program = new Command();
-  const defaultCorsOrigins =
-    process.env.CORS_ORIGINS !== undefined
-      ? process.env.CORS_ORIGINS
-      : "http://localhost:5173,http://127.0.0.1:5173";
-
   program
     .name("sutra")
     .option("--service-name <string>", "Service name", "sutra")
-    .option("--port <number>", "Port for HTTP server", process.env.PORT ?? "3000")
-    .option("--host <string>", "Host for HTTP server", process.env.HOST ?? "0.0.0.0")
+    .option("--port <number>", "Port for HTTP server", "3000")
+    .option("--host <string>", "Host for HTTP server", "0.0.0.0")
     .option(
       "--cors-origins <string>",
       "Comma-separated allowed CORS origins; empty or false disables",
       normalizeCorsOrigins,
-      defaultCorsOrigins.split(",")
+      ["http://localhost:5173", "http://127.0.0.1:5173"]
     );
 
   return program;

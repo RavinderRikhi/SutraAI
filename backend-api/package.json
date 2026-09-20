@@ -1,0 +1,42 @@
+{
+  "name": "sutraai-backend-api",
+  "version": "1.0.0",
+  "description": "SutraAI Express backend",
+  "main": "dist/services/sutra/index.js",
+  "scripts": {
+    "dev": "tsx watch src/services/sutra/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "NODE_ENV=test node --import tsx ./node_modules/mocha/bin/mocha \"test/**/*.test.ts\"",
+    "start": "node dist/services/sutra/index.js",
+    "prisma:generate": "prisma generate --config src/lib/postgres-prisma/prisma.config.ts",
+    "prisma:migrate": "prisma migrate dev --name init --config src/lib/postgres-prisma/prisma.config.ts",
+    "prisma:push": "prisma db push --config src/lib/postgres-prisma/prisma.config.ts"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "commander": "^14.0.1",
+    "express": "^5.2.1",
+    "morgan": "^1.10.1",
+    "openai": "^6.0.0",
+    "pg": "^8.23.0",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/express": "^5.0.6",
+    "@types/mocha": "^10.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^25.6.0",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^6.0.3",
+    "chai": "^6.2.2",
+    "mocha": "^11.7.5",
+    "prisma": "^7.10.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}

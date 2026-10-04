@@ -10,7 +10,8 @@
     "start": "node dist/services/sutra/index.js",
     "prisma:generate": "prisma generate --config src/lib/postgres-prisma/prisma.config.ts",
     "prisma:migrate": "prisma migrate dev --name init --config src/lib/postgres-prisma/prisma.config.ts",
-    "prisma:push": "prisma db push --config src/lib/postgres-prisma/prisma.config.ts"
+    "prisma:push": "prisma db push --config src/lib/postgres-prisma/prisma.config.ts",
+    "smoke": "tsx scripts/smoke-test.ts"
   },
   "license": "ISC",
   "type": "commonjs",

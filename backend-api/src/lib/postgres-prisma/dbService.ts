@@ -14,6 +14,11 @@ export type Tenant = {
   planType: string;
 };
 
+export type DocumentChunkInput = {
+  filename: string;
+  content: string;
+};
+
 export type CreateTenantInput = {
   businessName: string;
   subdomainSlug: string;
@@ -23,16 +28,32 @@ export type CreateTenantInput = {
   isActive?: boolean;
 };
 
+type TenantChunksRow = {
+  chunks: DocumentChunkInput[];
+};
+
 export type DbClient = {
   $connect(): Promise<void>;
   $disconnect(): Promise<void>;
+  $transaction<T>(fn: (tx: DbClient) => Promise<T>): Promise<T>;
   tenant: {
-    findUnique(args: { where: { subdomainSlug: string } }): Promise<Tenant | null>;
+    findUnique(args: {
+      where: { subdomainSlug: string };
+      select?: { chunks: { select: { filename: true; content: true } } };
+    }): Promise<Tenant | TenantChunksRow | null>;
     create(args: { data: CreateTenantInput }): Promise<Tenant>;
     update(args: {
       where: { subdomainSlug: string };
       data: { jsonState: unknown };
     }): Promise<Tenant>;
+  };
+  documentChunk: {
+    deleteMany(args: {
+      where: { tenantId: string; filename: { in: string[] } };
+    }): Promise<{ count: number }>;
+    createMany(args: {
+      data: Array<{ tenantId: string; filename: string; content: string }>;
+    }): Promise<{ count: number }>;
   };
 };
 
@@ -86,7 +107,10 @@ export class DbService {
     const row = await this.client.tenant.findUnique({
       where: { subdomainSlug: slug }
     });
-    return row === null ? null : mapTenant(row);
+    if (row === null || !("id" in row)) {
+      return null;
+    }
+    return mapTenant(row);
   }
 
   async createTenant(data: CreateTenantInput): Promise<Tenant> {
@@ -100,5 +124,52 @@ export class DbService {
       data: { jsonState }
     });
     return mapTenant(row);
+  }
+
+  async getTenantContextChunks(subdomainSlug: string): Promise<DocumentChunkInput[]> {
+    const row = await this.client.tenant.findUnique({
+      where: { subdomainSlug },
+      select: {
+        chunks: {
+          select: {
+            filename: true,
+            content: true
+          }
+        }
+      }
+    });
+    if (row === null || !("chunks" in row)) {
+      return [];
+    }
+    return row.chunks;
+  }
+
+  async saveDocumentChunks(
+    subdomainSlug: string,
+    chunks: DocumentChunkInput[]
+  ): Promise<void> {
+    const tenant = await this.client.tenant.findUnique({
+      where: { subdomainSlug }
+    });
+    if (tenant === null || !("id" in tenant)) {
+      throw new Error(`Tenant not found: ${subdomainSlug}`);
+    }
+    if (chunks.length === 0) {
+      return;
+    }
+    const tenantId = tenant.id;
+    const filenames = [...new Set(chunks.map((c) => c.filename))];
+    await this.client.$transaction(async (tx) => {
+      await tx.documentChunk.deleteMany({
+        where: { tenantId, filename: { in: filenames } }
+      });
+      await tx.documentChunk.createMany({
+        data: chunks.map((c) => ({
+          tenantId,
+          filename: c.filename,
+          content: c.content
+        }))
+      });
+    });
   }
 }

@@ -59,6 +59,17 @@ describe("chatHandler utilities", () => {
     expect(prompt).to.include('"businessName":"Acme"');
   });
 
+  it("buildChatSystemPrompt lists faq gallery footer section shapes", () => {
+    const prompt = buildChatSystemPrompt(
+      { subdomainSlug: "acme", businessName: "Acme" },
+      { businessName: "Acme" }
+    );
+    expect(prompt).to.include("faq");
+    expect(prompt).to.include("gallery");
+    expect(prompt).to.include("footer");
+    expect(prompt).to.include("question");
+  });
+
   it("createChatCompletion calls openRouter with CHAT_MODEL and json_object format", async () => {
     let received: unknown;
     const openRouter = {

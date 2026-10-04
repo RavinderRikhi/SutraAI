@@ -106,6 +106,7 @@ export function buildChatSystemPrompt(
     'Respond with JSON only, shape: { "reply": string, "jsonState": object }.',
     "jsonState must be the FULL site configuration after this turn (not a patch).",
     "Include at least: businessName, tagline, accentColors { primary, secondary }, sections (array of { id, type, content }).",
+    "Section types: header, hero, services, contact, faq, gallery, footer. Typical content: contact { phone, email, address }; faq { items: [{ question, answer }] }; gallery { images: [{ url, caption }] }; footer { navLinks or links, socialLinks or social, copyright } — nav/social entries may be strings or { label, href }.",
     "Merge the user's request into the current jsonState; keep unchanged fields.",
     `Tenant slug: ${tenant.subdomainSlug}`,
     `Tenant business name: ${tenant.businessName}`,

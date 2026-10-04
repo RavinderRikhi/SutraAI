@@ -1,4 +1,11 @@
-export type SectionType = "header" | "hero" | "services" | "contact";
+export type SectionType =
+  | "header"
+  | "hero"
+  | "services"
+  | "contact"
+  | "faq"
+  | "gallery"
+  | "footer";
 
 export type RenderableSection = {
   id: string;
@@ -6,7 +13,15 @@ export type RenderableSection = {
   content: Record<string, unknown>;
 };
 
-const RENDERABLE = new Set<string>(["header", "hero", "services", "contact"]);
+const RENDERABLE = new Set<string>([
+  "header",
+  "hero",
+  "services",
+  "contact",
+  "faq",
+  "gallery",
+  "footer"
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

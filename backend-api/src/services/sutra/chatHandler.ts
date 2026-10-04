@@ -13,6 +13,19 @@ export type ChatRequestBody = {
   jsonState: Record<string, unknown>;
 };
 
+export type ContextChunk = {
+  filename: string;
+  content: string;
+};
+
+export type RagContextLimits = {
+  maxChunks?: number;
+  maxChars?: number;
+};
+
+export const DEFAULT_RAG_MAX_CHUNKS = 20;
+export const DEFAULT_RAG_MAX_CHARS = 8000;
+
 const VALID_ROLES = new Set(["user", "assistant", "system"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,11 +62,46 @@ export function parseChatRequestBody(body: unknown): ChatRequestBody | null {
   return { subdomainSlug, messages, jsonState: body.jsonState };
 }
 
+export function selectContextChunks(
+  chunks: ContextChunk[],
+  limits?: RagContextLimits
+): { kept: ContextChunk[]; truncated: boolean } {
+  const maxChunks = limits?.maxChunks ?? DEFAULT_RAG_MAX_CHUNKS;
+  const maxChars = limits?.maxChars ?? DEFAULT_RAG_MAX_CHARS;
+  const kept: ContextChunk[] = [];
+  let runningChars = 0;
+  for (const chunk of chunks) {
+    if (kept.length >= maxChunks || runningChars + chunk.content.length > maxChars) {
+      break;
+    }
+    kept.push(chunk);
+    runningChars += chunk.content.length;
+  }
+  return { kept, truncated: kept.length < chunks.length };
+}
+
+export function formatBusinessContextBlock(chunks: ContextChunk[]): string {
+  const lines = [
+    "# BUSINESS CONTEXT FROM UPLOADED DOCUMENTS",
+    "Use the following verified facts (prices, services, opening hours) to update the website state:"
+  ];
+  let currentFile: string | null = null;
+  for (const chunk of chunks) {
+    if (chunk.filename !== currentFile) {
+      currentFile = chunk.filename;
+      lines.push(`[Document: ${chunk.filename}]`);
+    }
+    lines.push(`- ${chunk.content}`);
+  }
+  return lines.join("\n");
+}
+
 export function buildChatSystemPrompt(
   tenant: { subdomainSlug: string; businessName: string },
-  jsonState: Record<string, unknown>
+  jsonState: Record<string, unknown>,
+  contextBlock?: string
 ): string {
-  return [
+  const parts = [
     "You are SutraAI, a website builder assistant.",
     'Respond with JSON only, shape: { "reply": string, "jsonState": object }.',
     "jsonState must be the FULL site configuration after this turn (not a patch).",
@@ -62,7 +110,14 @@ export function buildChatSystemPrompt(
     `Tenant slug: ${tenant.subdomainSlug}`,
     `Tenant business name: ${tenant.businessName}`,
     `Current jsonState: ${JSON.stringify(jsonState)}`
-  ].join("\n");
+  ];
+  if (contextBlock !== undefined && contextBlock.trim() !== "") {
+    parts.push(
+      contextBlock,
+      "When modifying jsonState (hero taglines, prices, service lists, hours, or similar), strictly prioritize facts from the uploaded context over general knowledge."
+    );
+  }
+  return parts.join("\n");
 }
 
 export function parseChatModelPayload(

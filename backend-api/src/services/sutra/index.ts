@@ -13,8 +13,12 @@ import { appendOpenAIConfigOptions, createOpenRouterClient } from "../../lib/ope
 import {
   buildChatSystemPrompt,
   createChatCompletion,
+  DEFAULT_RAG_MAX_CHARS,
+  DEFAULT_RAG_MAX_CHUNKS,
+  formatBusinessContextBlock,
   parseChatModelPayload,
-  parseChatRequestBody
+  parseChatRequestBody,
+  selectContextChunks
 } from "./chatHandler";
 import {
   chunkText,
@@ -186,7 +190,22 @@ export class SutraServer extends ExpressServer {
       return;
     }
 
-    const systemContent = buildChatSystemPrompt(tenant, jsonState);
+    const contextChunks = await this.db.getTenantContextChunks(subdomainSlug);
+    const { kept, truncated } = selectContextChunks(contextChunks);
+    if (truncated) {
+      this.log.info("chat_context_truncated", {
+        requestId: requestId ?? "unknown",
+        subdomainSlug,
+        fetched: contextChunks.length,
+        kept: kept.length,
+        maxChunks: DEFAULT_RAG_MAX_CHUNKS,
+        maxChars: DEFAULT_RAG_MAX_CHARS
+      });
+    }
+
+    const contextBlock =
+      kept.length > 0 ? formatBusinessContextBlock(kept) : undefined;
+    const systemContent = buildChatSystemPrompt(tenant, jsonState, contextBlock);
 
     let content: string | null | undefined;
     try {

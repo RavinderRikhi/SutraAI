@@ -77,10 +77,67 @@ describe("POST /api/chat", () => {
     expect(res.body.message).to.equal("Tenant not found");
   });
 
+  it("injects tenant document context into the system prompt", async () => {
+    let received: { messages?: Array<{ role: string; content: string }> } | undefined;
+    const db = {
+      getTenantBySlug: async () => sampleTenant,
+      getTenantContextChunks: async () => [
+        { filename: "menu.pdf", content: "Espresso: $3.50" }
+      ],
+      updateTenantState: async (_slug: string, state: unknown) => ({
+        ...sampleTenant,
+        jsonState: state
+      })
+    } as unknown as DbService;
+
+    const modelJson = {
+      reply: "Updated prices",
+      jsonState: {
+        businessName: "Acme",
+        tagline: "Espresso $3.50",
+        accentColors: { primary: "#000", secondary: "#fff" },
+        sections: []
+      }
+    };
+
+    const openRouter = {
+      chat: {
+        completions: {
+          create: async (args: {
+            messages: Array<{ role: string; content: string }>;
+          }) => {
+            received = args;
+            return {
+              choices: [{ message: { content: JSON.stringify(modelJson) } }]
+            };
+          }
+        }
+      }
+    } as unknown as OpenAI;
+
+    const app = buildApp({ db, openRouter });
+    const res = await request(app)
+      .post("/api/chat")
+      .send({
+        subdomainSlug: "acme",
+        messages: [{ role: "user", content: "Use menu prices" }],
+        jsonState: { businessName: "Acme" }
+      });
+
+    expect(res.status).to.equal(200);
+    const system =
+      received?.messages?.find((m) => m.role === "system")?.content ?? "";
+    expect(system).to.include("# BUSINESS CONTEXT FROM UPLOADED DOCUMENTS");
+    expect(system).to.include("[Document: menu.pdf]");
+    expect(system).to.include("Espresso: $3.50");
+    expect(system).to.include("strictly prioritize");
+  });
+
   it("returns 200 and persists jsonState on valid model response", async () => {
     let updatedState: unknown;
     const db = {
       getTenantBySlug: async () => sampleTenant,
+      getTenantContextChunks: async () => [],
       updateTenantState: async (_slug: string, state: unknown) => {
         updatedState = state;
         return { ...sampleTenant, jsonState: state };
@@ -125,6 +182,7 @@ describe("POST /api/chat", () => {
   it("returns 502 when model content is not valid JSON", async () => {
     const db = {
       getTenantBySlug: async () => sampleTenant,
+      getTenantContextChunks: async () => [],
       updateTenantState: async () => sampleTenant
     } as unknown as DbService;
     const openRouter = {
@@ -151,6 +209,7 @@ describe("POST /api/chat", () => {
   it("returns 502 when completions.create throws", async () => {
     const db = {
       getTenantBySlug: async () => sampleTenant,
+      getTenantContextChunks: async () => [],
       updateTenantState: async () => sampleTenant
     } as unknown as DbService;
     const openRouter = {

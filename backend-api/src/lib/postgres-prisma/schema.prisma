@@ -7,11 +7,21 @@ datasource db {
 }
 
 model Tenant {
-  id             String  @id @default(uuid()) @db.Uuid
+  id             String          @id @default(uuid()) @db.Uuid
   businessName   String
-  subdomainSlug  String  @unique
+  subdomainSlug  String          @unique
   contactEmail   String
-  jsonState      Json    @default("{}") @db.JsonB
-  isActive       Boolean @default(true)
+  jsonState      Json            @default("{}") @db.JsonB
+  isActive       Boolean         @default(true)
   planType       String
+  chunks         DocumentChunk[]
+}
+
+model DocumentChunk {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  filename  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
 }

@@ -17,6 +17,13 @@ import {
   parseChatRequestBody
 } from "./chatHandler";
 import {
+  chunkText,
+  extractTextFromUpload,
+  isAllowedUploadExtension,
+  multerLimitMessage,
+  uploadDocuments
+} from "./documentUpload";
+import {
   appendPostgresOptions,
   DbService,
   resolvePostgresOptions,
@@ -130,6 +137,21 @@ export class SutraServer extends ExpressServer {
     this.app.post("/api/chat", (req: Request, res: Response, next) => {
       void this.handleChatPost(req, res).catch(next);
     });
+
+    this.app.post("/api/documents/upload", (req: Request, res: Response, next) => {
+      uploadDocuments(req, res, (err: unknown) => {
+        if (err) {
+          const limitMessage = multerLimitMessage(err);
+          if (limitMessage !== null) {
+            jsonError(res, 400, limitMessage, req.requestId);
+            return;
+          }
+          next(err);
+          return;
+        }
+        void this.handleDocumentUpload(req, res).catch(next);
+      });
+    });
   }
 
   private async handleChatPost(req: Request, res: Response): Promise<void> {
@@ -214,6 +236,76 @@ export class SutraServer extends ExpressServer {
     res.status(200).json({
       reply: modelPayload.reply,
       jsonState: modelPayload.jsonState
+    });
+  }
+
+  private async handleDocumentUpload(req: Request, res: Response): Promise<void> {
+    const requestId = req.requestId;
+
+    if (this.db === undefined) {
+      jsonError(res, 503, "Upload unavailable", requestId);
+      return;
+    }
+
+    const subdomainSlug =
+      typeof req.body?.subdomainSlug === "string" ? req.body.subdomainSlug.trim() : "";
+    const files = Array.isArray(req.files) ? req.files : [];
+
+    if (subdomainSlug === "" || files.length === 0) {
+      jsonError(res, 400, "Invalid upload request", requestId);
+      return;
+    }
+
+    if (!files.every((f) => isAllowedUploadExtension(f.originalname))) {
+      jsonError(res, 400, "Only .pdf and .txt files are allowed", requestId);
+      return;
+    }
+
+    const fileResults: Array<{ filename: string; chunksIngested: number }> = [];
+    const allChunks: Array<{ filename: string; content: string }> = [];
+
+    for (const file of files) {
+      const text = await extractTextFromUpload({
+        originalname: file.originalname,
+        buffer: file.buffer
+      });
+      if (text.trim() === "") {
+        jsonError(res, 400, "No extractable text", requestId);
+        return;
+      }
+      const chunks = chunkText(text).map((content) => ({
+        filename: file.originalname,
+        content
+      }));
+      fileResults.push({
+        filename: file.originalname,
+        chunksIngested: chunks.length
+      });
+      allChunks.push(...chunks);
+    }
+
+    try {
+      await this.db.saveDocumentChunks(subdomainSlug, allChunks);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("Tenant not found:")) {
+        jsonError(res, 404, "Tenant not found", requestId);
+        return;
+      }
+      throw error;
+    }
+
+    this.log.info("documents_uploaded", {
+      requestId: requestId ?? "unknown",
+      subdomainSlug,
+      fileCount: files.length,
+      chunksIngested: allChunks.length
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Documents ingested successfully",
+      files: fileResults
     });
   }
 }

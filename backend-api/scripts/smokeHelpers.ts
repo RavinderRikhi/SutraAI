@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+
 import type { RawPostgresOptions } from "../src/lib/postgres-prisma";
 
 export type SmokeConfig = {
@@ -36,8 +38,50 @@ export function buildSmokeUserContent(marker: string): string {
   return `Set tagline to exactly: ${marker}. Keep other fields.`;
 }
 
+/** ponytail: naive .env parse; upgrade path is node --env-file if we outgrow this */
+export function loadDotEnv(envPath: string, env: NodeJS.ProcessEnv = process.env): void {
+  if (!existsSync(envPath)) {
+    return;
+  }
+  const content = readFileSync(envPath, "utf8");
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) {
+      continue;
+    }
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) {
+      continue;
+    }
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (env[key] === undefined) {
+      env[key] = value;
+    }
+  }
+}
+
+function resolveSmokeApiUrl(env: NodeJS.ProcessEnv): string {
+  const explicit = (env.SMOKE_API_URL ?? "").trim();
+  if (explicit !== "") {
+    return explicit;
+  }
+  const port = (env.PORT ?? "3000").trim();
+  let host = (env.HOST ?? "localhost").trim();
+  if (host === "0.0.0.0" || host === "::") {
+    host = "localhost";
+  }
+  return `http://${host}:${port}`;
+}
+
 export function readSmokeConfig(env: NodeJS.ProcessEnv): SmokeConfig {
-  const apiUrl = (env.SMOKE_API_URL ?? "http://localhost:5000").trim();
+  const apiUrl = resolveSmokeApiUrl(env);
   const slug = (env.SMOKE_SLUG ?? "acme").trim();
   const databaseUrl = (env.DATABASE_URL ?? "").trim();
   const pg: RawPostgresOptions =

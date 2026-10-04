@@ -76,11 +76,11 @@ SutraAI/
 
 **Verify chat loop:**
 
-1. Start backend (smoke default port **5000**; if different, set `SMOKE_API_URL`) and frontend (`npm run dev` in `web/`, port 5173; CORS must allow the Vite origin).
+1. Start backend (smoke uses `SMOKE_API_URL` or `http://HOST:PORT` from env, default **3000**) and frontend (`npm run dev` in `web/`, port 5173; CORS must allow the Vite origin).
 2. Open the dashboard; keep subdomain slug `acme` (tenant row must exist).
 3. Send a prompt that should change visible content (e.g. hero copy or tagline).
 4. Confirm: assistant reply appears; **Show JSON** reflects the new `jsonState`; the right-side preview updates without a page refresh.
-5. Optionally run `npm run smoke` in `backend-api/` (with `DATABASE_URL` or `PG_*` set) to assert API + Prisma persistence via a unique `tagline` marker.
+5. Optionally run `npm run smoke` in `backend-api/` (loads `backend-api/.env` if present; needs the API up, `DATABASE_URL` or base64 `PGPASSWORD` like `--pg-password`, and `SMOKE_API_URL` only if the API is not reachable at the default `http://localhost:3000`) to assert API + Prisma persistence via a unique `tagline` marker.
 
 **Tests** (backend): `npm test` in `backend-api/`.
 

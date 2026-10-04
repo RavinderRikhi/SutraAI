@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import {
   DbService,
   resolvePostgresOptions
@@ -7,13 +9,20 @@ import {
   buildMarker,
   buildSmokeUserContent,
   isRecord,
+  loadDotEnv,
   readSmokeConfig,
   taglineOf
 } from "./smokeHelpers";
 
 async function main(): Promise<void> {
+  loadDotEnv(join(__dirname, "..", ".env"));
   const config = readSmokeConfig(process.env);
   const pgOptions = resolvePostgresOptions(config.pg);
+  if (pgOptions.password === "") {
+    throw new Error(
+      "Postgres password missing. Set DATABASE_URL or PGPASSWORD (base64, same as --pg-password) in backend-api/.env or your shell."
+    );
+  }
   const db = new DbService(pgOptions);
   await db.connect();
 
@@ -42,7 +51,15 @@ async function main(): Promise<void> {
       body = await response.json();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Fetch failed: ${message}`);
+      const cause =
+        error instanceof Error && error.cause instanceof Error
+          ? error.cause.message
+          : undefined;
+      const hint =
+        cause !== undefined && cause !== message ? ` (${cause})` : "";
+      throw new Error(
+        `Fetch failed for ${config.apiUrl}/api/chat${hint}: ${message}. Is the API running? Override with SMOKE_API_URL if needed.`
+      );
     }
 
     assertChatSuccess(status, body);

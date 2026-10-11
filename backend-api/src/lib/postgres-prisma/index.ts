@@ -6,8 +6,6 @@ export {
   type RawPostgresOptions
 } from "./options";
 export {
-  DbService,
-  type CreateTenantInput,
-  type DocumentChunkInput,
-  type Tenant
-} from "./dbService";
+  createPrismaClient,
+  type PrismaClientHandle
+} from "./client";

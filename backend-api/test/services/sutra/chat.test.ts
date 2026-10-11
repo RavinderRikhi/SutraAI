@@ -2,7 +2,7 @@ import { expect } from "chai";
 import request from "supertest";
 import type OpenAI from "openai";
 
-import type { DbService } from "../../../src/lib/postgres-prisma";
+import type { DbService } from "../../../src/services/sutra/db";
 import { initializeServerContext } from "../../../src/lib/base-server";
 import { SutraServer } from "../../../src/services/sutra/index";
 

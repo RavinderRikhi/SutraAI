@@ -13,5 +13,5 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts"],
-  "exclude": ["src/lib/postgres-prisma/prisma.config.ts"]
+  "exclude": ["src/services/sutra/db/prisma.config.ts"]
 }

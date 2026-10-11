@@ -5,7 +5,7 @@ import pdfParse from "pdf-parse";
 
 export const CHUNK_SIZE = 500;
 export const MAX_UPLOAD_FILES = 10;
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
 const ALLOWED_EXT = new Set([".pdf", ".txt"]);
 

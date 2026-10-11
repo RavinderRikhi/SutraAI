@@ -1,7 +1,7 @@
 import { expect } from "chai";
 
-import { DbService } from "../../../src/lib/postgres-prisma/dbService";
-import type { PostgresConnectionOptions } from "../../../src/lib/postgres-prisma/options";
+import { DbService } from "../../../../src/services/sutra/db";
+import type { PostgresConnectionOptions } from "../../../../src/lib/postgres-prisma/options";
 
 const unusedOptions: PostgresConnectionOptions = {
   host: "localhost",

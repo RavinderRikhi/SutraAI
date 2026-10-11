@@ -29,10 +29,10 @@ import {
 } from "./documentUpload";
 import {
   appendPostgresOptions,
-  DbService,
   resolvePostgresOptions,
   type RawPostgresOptions
 } from "../../lib/postgres-prisma";
+import { DbService } from "./db";
 
 export type SutraContext = ServerContext & {
   db?: DbService;

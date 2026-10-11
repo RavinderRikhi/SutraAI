@@ -8,9 +8,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "NODE_ENV=test node --import tsx ./node_modules/mocha/bin/mocha \"test/**/*.test.ts\"",
     "start": "node dist/services/sutra/index.js",
-    "prisma:generate": "prisma generate --config src/lib/postgres-prisma/prisma.config.ts",
-    "prisma:migrate": "prisma migrate dev --name init --config src/lib/postgres-prisma/prisma.config.ts",
-    "prisma:push": "prisma db push --config src/lib/postgres-prisma/prisma.config.ts",
+    "prisma:generate": "prisma generate --config src/services/sutra/db/prisma.config.ts",
+    "prisma:migrate": "prisma migrate dev --name init --config src/services/sutra/db/prisma.config.ts",
+    "prisma:push": "prisma db push --config src/services/sutra/db/prisma.config.ts",
     "smoke": "tsx scripts/smoke-test.ts"
   },
   "license": "ISC",

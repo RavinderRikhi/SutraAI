@@ -1,9 +1,7 @@
 import { join } from "node:path";
 
-import {
-  DbService,
-  resolvePostgresOptions
-} from "../src/lib/postgres-prisma";
+import { resolvePostgresOptions } from "../src/lib/postgres-prisma";
+import { DbService } from "../src/services/sutra/db";
 import {
   assertChatSuccess,
   buildMarker,

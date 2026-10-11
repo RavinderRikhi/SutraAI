@@ -1,8 +1,7 @@
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
-import { Pool } from "pg";
-
-import type { PostgresConnectionOptions } from "./options";
+import {
+  createPrismaClient,
+  type PostgresConnectionOptions
+} from "../../../lib/postgres-prisma";
 
 export type Tenant = {
   id: string;
@@ -71,35 +70,31 @@ function mapTenant(row: Tenant): Tenant {
 
 export class DbService {
   private readonly client: DbClient;
-  private readonly pool: Pool | null;
+  private readonly handle: ReturnType<typeof createPrismaClient> | null;
 
   constructor(options: PostgresConnectionOptions, client?: DbClient) {
     if (client) {
       this.client = client;
-      this.pool = null;
+      this.handle = null;
       return;
     }
-    const pool = new Pool({
-      host: options.host,
-      port: options.port,
-      user: options.user,
-      password: options.password,
-      database: options.database,
-      ssl: options.ssl ? { rejectUnauthorized: true } : undefined
-    });
-    this.pool = pool;
-    const adapter = new PrismaPg(pool);
-    this.client = new PrismaClient({ adapter }) as unknown as DbClient;
+    const handle = createPrismaClient(options);
+    this.handle = handle;
+    this.client = handle.client as unknown as DbClient;
   }
 
   async connect(): Promise<void> {
-    await this.client.$connect();
-    if (this.pool) {
-      await this.pool.query("SELECT 1");
+    if (this.handle) {
+      await this.handle.connect();
+      return;
     }
+    await this.client.$connect();
   }
 
   disconnect(): Promise<void> {
+    if (this.handle) {
+      return this.handle.disconnect();
+    }
     return this.client.$disconnect();
   }
 
